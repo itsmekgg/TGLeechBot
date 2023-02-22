@@ -4,9 +4,10 @@ from pyrogram.filters import command
 from base64 import b64encode
 from re import match as re_match, split as re_split
 from asyncio import sleep
+from aiofiles.os import path as aiopath
 
 from bot import bot, DOWNLOAD_DIR, LOGGER, config_dict
-from bot.helper.ext_utils.bot_utils import is_url, is_magnet, is_mega_link, is_gdrive_link, get_content_type, new_task, sync_to_async
+from bot.helper.ext_utils.bot_utils import is_url, is_magnet, is_mega_link, is_gdrive_link, get_content_type, new_task, sync_to_async, new_thread
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException
 from bot.helper.mirror_utils.download_utils.aria2_download import add_aria2c_download
 from bot.helper.mirror_utils.download_utils.gd_downloader import add_gd_download
@@ -20,6 +21,7 @@ from bot.helper.telegram_helper.message_utils import sendMessage
 from bot.helper.listener import MirrorLeechListener
 
 
+@new_thread
 async def _mirror_leech(client, message, isZip=False, extract=False, isQbit=False, isLeech=False, sameDir={}):
     if not isLeech and not config_dict['GDRIVE_ID']:
         await sendMessage(message, 'GDRIVE_ID not Provided!')
@@ -89,7 +91,7 @@ async def _mirror_leech(client, message, isZip=False, extract=False, isQbit=Fals
             sameDir.add(nextmsg.id)
         nextmsg.from_user = message.from_user
         await sleep(4)
-        await _mirror_leech(client, nextmsg, isZip, extract, isQbit, isLeech, sameDir)
+        _mirror_leech(client, nextmsg, isZip, extract, isQbit, isLeech, sameDir)
 
     path = f'{DOWNLOAD_DIR}{message.id}{folder_name}'
 
@@ -105,6 +107,7 @@ async def _mirror_leech(client, message, isZip=False, extract=False, isQbit=Fals
     if len(mesg) > 1 and mesg[1].startswith('Tag: '):
         tag, id_ = mesg[1].split('Tag: ')[1].split()
         message.from_user = await client.get_users(id_)
+        await message.unpin()
     elif username := message.from_user.username:
         tag = f"@{username}"
     else:
@@ -135,7 +138,7 @@ async def _mirror_leech(client, message, isZip=False, extract=False, isQbit=Fals
                 await TelegramDownloadHelper(listener).add_download(reply_to, f'{path}/', name)
                 return
 
-    if not is_url(link) and not is_magnet(link):
+    if not is_url(link) and not is_magnet(link) and not await aiopath.exists(link):
         help_msg = '''
 <code>/cmd</code> link |newname pswd: xx(zip/unzip)
 
@@ -216,40 +219,40 @@ Number and m:folder_name (folder_name without space) should be always before |ne
 
 
 async def mirror(client, message):
-    await _mirror_leech(client, message)
+    _mirror_leech(client, message)
 
 async def unzip_mirror(client, message):
-    await _mirror_leech(client, message, extract=True)
+    _mirror_leech(client, message, extract=True)
 
 async def zip_mirror(client, message):
-    await _mirror_leech(client, message, True)
+    _mirror_leech(client, message, True)
 
 async def qb_mirror(client, message):
-    await _mirror_leech(client, message, isQbit=True)
+    _mirror_leech(client, message, isQbit=True)
 
 async def qb_unzip_mirror(client, message):
-    await _mirror_leech(client, message, extract=True, isQbit=True)
+    _mirror_leech(client, message, extract=True, isQbit=True)
 
 async def qb_zip_mirror(client, message):
-    await _mirror_leech(client, message, True, isQbit=True)
+    _mirror_leech(client, message, True, isQbit=True)
 
 async def leech(client, message):
-    await _mirror_leech(client, message, isLeech=True)
+    _mirror_leech(client, message, isLeech=True)
 
 async def unzip_leech(client, message):
-    await _mirror_leech(client, message, extract=True, isLeech=True)
+    _mirror_leech(client, message, extract=True, isLeech=True)
 
 async def zip_leech(client, message):
-    await _mirror_leech(client, message, True, isLeech=True)
+    _mirror_leech(client, message, True, isLeech=True)
 
 async def qb_leech(client, message):
-    await _mirror_leech(client, message, isQbit=True, isLeech=True)
+    _mirror_leech(client, message, isQbit=True, isLeech=True)
 
 async def qb_unzip_leech(client, message):
-    await _mirror_leech(client, message, extract=True, isQbit=True, isLeech=True)
+    _mirror_leech(client, message, extract=True, isQbit=True, isLeech=True)
 
 async def qb_zip_leech(client, message):
-    await _mirror_leech(client, message, True, isQbit=True, isLeech=True)
+    _mirror_leech(client, message, True, isQbit=True, isLeech=True)
 
 
 bot.add_handler(MessageHandler(mirror, filters=command(BotCommands.MirrorCommand) & CustomFilters.authorized))

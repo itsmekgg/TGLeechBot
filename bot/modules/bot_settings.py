@@ -15,7 +15,7 @@ from bot.helper.telegram_helper.message_utils import sendMessage, sendFile, edit
 from bot.helper.telegram_helper.filters import CustomFilters
 from bot.helper.telegram_helper.bot_commands import BotCommands
 from bot.helper.telegram_helper.button_build import ButtonMaker
-from bot.helper.ext_utils.bot_utils import setInterval, sync_to_async, async_to_sync_dec
+from bot.helper.ext_utils.bot_utils import setInterval, sync_to_async, new_thread
 from bot.helper.ext_utils.db_handler import DbManger
 from bot.helper.ext_utils.queued_starter import start_from_queued
 from bot.modules.search import initiate_search_tools
@@ -343,8 +343,10 @@ async def get_buttons(key=None, edit_type=None):
     elif key == 'private':
         buttons.ibutton('Back', "botset back")
         buttons.ibutton('Close', "botset close")
-        msg = 'Send private file: config.env, token.pickle, accounts.zip, list_drives.txt, cookies.txt, terabox.txt or .netrc.' \
-              '\nTo delete private file send the name of the file only as text message.\nTimeout: 60 sec'
+        msg = '''Send private file: config.env, token.pickle, accounts.zip, list_drives.txt, cookies.txt, terabox.txt, .netrc or any other file!.
+To delete private file send only the file name as text message.
+Note: Changing .netrc will not take effect for aria2c until restart.
+Timeout: 60 sec'''
     elif key == 'aria':
         for k in list(aria2_options.keys())[START:10+START]:
             buttons.ibutton(k, f"botset editaria {k}")
@@ -376,7 +378,7 @@ async def get_buttons(key=None, edit_type=None):
         if key not in ['TELEGRAM_HASH', 'TELEGRAM_API', 'OWNER_ID', 'BOT_TOKEN']:
             buttons.ibutton('Default', f"botset resetvar {key}")
         buttons.ibutton('Close', "botset close")
-        if key in ['SUDO_USERS', 'CMD_SUFFIX', 'OWNER_ID', 'USER_SESSION_STRING', 'TELEGRAM_HASH', 
+        if key in ['SUDO_USERS', 'CMD_SUFFIX', 'OWNER_ID', 'USER_SESSION_STRING', 'TELEGRAM_HASH',
                    'TELEGRAM_API', 'AUTHORIZED_CHATS', 'DATABASE_URL', 'BOT_TOKEN', 'DOWNLOAD_DIR']:
             msg += 'Restart required for this edit to take effect!\n\n'
         msg += f'Send a valid value for {key}. Timeout: 60 sec'
@@ -417,6 +419,8 @@ async def edit_variable(client, message, pre_message, key):
     elif key == 'DOWNLOAD_DIR':
         if not value.endswith('/'):
             value = f'{value}/'
+    elif key in ['DUMP_CHAT', 'RSS_CHAT_ID']:
+        value = int(value)
     elif key == 'STATUS_UPDATE_INTERVAL':
         value = int(value)
         if len(download_dict) != 0:
@@ -580,13 +584,12 @@ async def update_private_file(client, message, pre_message):
     if await aiopath.exists('accounts.zip'):
         await remove('accounts.zip')
 
-@async_to_sync_dec
 async def event_handler(client, query, pfunc, rfunc, document=False):
     chat_id = query.message.chat.id
     handler_dict[chat_id] = True
     start_time = time()
     async def event_filter(_, __, event):
-        return bool(event.from_user.id == query.from_user.id and event.chat.id == chat_id and \
+        return bool(event.from_user.id == query.from_user.id and event.chat.id == chat_id and
                     (event.text or event.document and document))
     handler = client.add_handler(MessageHandler(pfunc, filters=create(event_filter)), group=-1)
     while handler_dict[chat_id]:
@@ -596,6 +599,7 @@ async def event_handler(client, query, pfunc, rfunc, document=False):
             await rfunc()
     client.remove_handler(*handler)
 
+@new_thread
 async def edit_bot_settings(client, query):
     data = query.data.split()
     message = query.message
@@ -711,14 +715,14 @@ async def edit_bot_settings(client, query):
         await update_buttons(message, data[1])
         pfunc = partial(update_private_file, pre_message=message)
         rfunc = partial(update_buttons, message)
-        event_handler(client, query, pfunc, rfunc, True)
+        await event_handler(client, query, pfunc, rfunc, True)
     elif data[1] == 'editvar' and STATE == 'edit':
         handler_dict[message.chat.id] = False
         await query.answer()
         await update_buttons(message, data[2], data[1])
         pfunc = partial(edit_variable, pre_message=message, key=data[2])
         rfunc = partial(update_buttons, message, 'var')
-        event_handler(client, query, pfunc, rfunc)
+        await event_handler(client, query, pfunc, rfunc)
     elif data[1] == 'editvar' and STATE == 'view':
         value = config_dict[data[2]]
         if len(str(value)) > 200:
@@ -736,7 +740,7 @@ async def edit_bot_settings(client, query):
         await update_buttons(message, data[2], data[1])
         pfunc = partial(edit_aria, pre_message=message, key=data[2])
         rfunc = partial(update_buttons, message, 'aria')
-        event_handler(client, query, pfunc, rfunc)
+        await event_handler(client, query, pfunc, rfunc)
     elif data[1] == 'editaria' and STATE == 'view':
         value = aria2_options[data[2]]
         if len(value) > 200:
@@ -754,7 +758,7 @@ async def edit_bot_settings(client, query):
         await update_buttons(message, data[2], data[1])
         pfunc = partial(edit_qbit, pre_message=message, key=data[2])
         rfunc = partial(update_buttons, message, 'var')
-        event_handler(client, query, pfunc, rfunc)
+        await event_handler(client, query, pfunc, rfunc)
     elif data[1] == 'editqbit' and STATE == 'view':
         value = qbit_options[data[2]]
         if len(str(value)) > 200:
@@ -793,6 +797,7 @@ async def edit_bot_settings(client, query):
         await message.reply_to_mssage.delete()
         await message.delete()
 
+@new_thread
 async def bot_settings(client, message):
     msg, button = await get_buttons()
     globals()['START'] = 0

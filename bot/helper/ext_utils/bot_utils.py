@@ -9,14 +9,15 @@ from urllib.request import urlopen
 from asyncio import create_subprocess_exec, create_subprocess_shell, run_coroutine_threadsafe, sleep
 from asyncio.subprocess import PIPE
 from functools import partial, wraps
+from concurrent.futures import ThreadPoolExecutor
 
 from bot import download_dict, download_dict_lock, botStartTime, DOWNLOAD_DIR, user_data, config_dict, bot_loop
 from bot.helper.telegram_helper.bot_commands import BotCommands
 from bot.helper.telegram_helper.button_build import ButtonMaker
 
-MAGNET_REGEX = r"magnet:\?xt=urn:btih:[a-zA-Z0-9]*"
+MAGNET_REGEX = r'magnet:\?xt=urn:(btih|btmh):[a-zA-Z0-9]*'
 
-URL_REGEX = r"(?:(?:https?|ftp):\/\/)?[\w/\-?=%.]+\.[\w/\-?=%.]+"
+URL_REGEX = r'^(https?://|ftp://)?(www\.)?[^/\s]+\.[^/\s:]+(:\d+)?(/[^?\s]*)?(\?[^#\s]*)?(#.*)?$'
 
 COUNT = 0
 PAGE_NO = 1
@@ -226,6 +227,10 @@ def get_readable_time(seconds):
     result += f'{seconds}s'
     return result
 
+def is_magnet(url):
+    magnet = re_match(MAGNET_REGEX, url)
+    return bool(magnet)
+
 def is_url(url):
     url = re_match(URL_REGEX, url)
     return bool(url)
@@ -247,10 +252,6 @@ def get_mega_link_type(url):
     elif "/#F!" in url:
         return "folder"
     return "file"
-
-def is_magnet(url):
-    magnet = re_match(MAGNET_REGEX, url)
-    return bool(magnet)
 
 def get_content_type(link):
     try:
@@ -292,19 +293,17 @@ def new_task(func):
 
 async def sync_to_async(func, *args, wait=True, **kwargs):
     pfunc = partial(func, *args, **kwargs)
-    future = bot_loop.run_in_executor(None, pfunc)
-    if wait:
-        return await future
+    with ThreadPoolExecutor() as pool:
+        future = bot_loop.run_in_executor(pool, pfunc)
+        return await future if wait else future
 
 def async_to_sync(func, *args, wait=True, **kwargs):
     future = run_coroutine_threadsafe(func(*args, **kwargs), bot_loop)
-    if wait:
-        return future.result()
+    return future.result() if wait else future
 
-def async_to_sync_dec(func):
+def new_thread(func):
     @wraps(func)
     def wrapper(*args, wait=False, **kwargs):
         future = run_coroutine_threadsafe(func(*args, **kwargs), bot_loop)
-        if wait:
-            return future.result()
+        return future.result() if wait else future
     return wrapper
